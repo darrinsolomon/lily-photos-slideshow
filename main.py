@@ -194,21 +194,29 @@ def slideshow(lily_auth: str | None = Cookie(default=None)):
   <script>
     const slides = document.querySelectorAll('.slide');
     const counter = document.getElementById('counter');
-    let current = 0;
 
+    // Shuffle slides in place (Fisher-Yates)
+    for (let i = slides.length - 1; i > 0; i--) {{
+      const j = Math.floor(Math.random() * (i + 1));
+      slides[i].parentNode.insertBefore(slides[j], slides[i]);
+      slides[i].parentNode.insertBefore(slides[i], slides[j].nextSibling);
+    }}
+    const shuffled = document.querySelectorAll('.slide');
+
+    let cur = 0;
     function show(i) {{
-      slides[current].classList.remove('active');
-      current = (i + slides.length) % slides.length;
-      slides[current].classList.add('active');
-      counter.textContent = (current + 1) + ' / ' + slides.length;
+      shuffled[cur].classList.remove('active');
+      cur = (i + shuffled.length) % shuffled.length;
+      shuffled[cur].classList.add('active');
+      counter.textContent = (cur + 1) + ' / ' + shuffled.length;
     }}
 
     show(0);
-    const timer = setInterval(() => show(current + 1), 7000);
+    const timer = setInterval(() => show(cur + 1), 7000);
 
     document.body.addEventListener('click', () => {{
       clearInterval(timer);
-      show(current + 1);
+      show(cur + 1);
     }});
   </script>
 </body>
