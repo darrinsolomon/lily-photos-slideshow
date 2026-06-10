@@ -215,7 +215,7 @@ def slideshow(lily_auth: str | None = Cookie(default=None)):
     }}
     show(0);
     const timer = setInterval(() => show(cur + 1), 7000);
-    document.body.addEventListener('click', () => {{ clearInterval(timer); show(cur + 1); }});
+    document.body.addEventListener('click', () => show(cur + 1));
   </script>
 </body></html>""")
 
