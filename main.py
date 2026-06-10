@@ -128,6 +128,20 @@ async def upload(
     return {"uploaded": saved, "total_photos": len(_image_list())}
 
 
+@app.delete("/clear")
+def clear(authorization: str = Header(...)):
+    if not UPLOAD_TOKEN:
+        raise HTTPException(500, "UPLOAD_TOKEN not configured on server")
+    if not secrets.compare_digest(authorization, f"Bearer {UPLOAD_TOKEN}"):
+        raise HTTPException(401, "Unauthorized")
+    removed = []
+    for f in PHOTOS_DIR.iterdir():
+        if f.is_file():
+            f.unlink()
+            removed.append(f.name)
+    return {"cleared": len(removed)}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "photo_count": len(_image_list())}
