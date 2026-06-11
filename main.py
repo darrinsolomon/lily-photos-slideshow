@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import hashlib
 import hmac
@@ -8,7 +9,7 @@ from collections import deque
 from pathlib import Path
 
 from fastapi import Cookie, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 PHOTOS_DIR = Path(os.getenv("PHOTOS_DIR", "/data/photos"))
@@ -25,6 +26,14 @@ _COOKIE_MAX_AGE  = 60 * 60 * 24 * 365  # 1 year
 _visits: deque = deque(maxlen=500)
 _last_upload: float | None = None
 _start_time: float = time.time()
+
+# SSE subscribers — each is an asyncio.Queue
+_sse_clients: set[asyncio.Queue] = set()
+
+
+def _broadcast_reload() -> None:
+    for q in list(_sse_clients):
+        q.put_nowait("reload")
 
 
 def _make_cookie(key: str, secret: str) -> str:
@@ -216,6 +225,9 @@ def slideshow(lily_auth: str | None = Cookie(default=None)):
     show(0);
     const timer = setInterval(() => show(cur + 1), 7000);
     document.body.addEventListener('click', () => show(cur + 1));
+
+    const es = new EventSource('/events');
+    es.addEventListener('reload', () => location.reload());
   </script>
 </body></html>""")
 
@@ -312,6 +324,32 @@ def admin(lily_admin: str | None = Cookie(default=None)):
 </body></html>""")
 
 
+# ── Server-Sent Events ───────────────────────────────────────────────────────
+
+@app.get("/events")
+async def events(lily_auth: str | None = Cookie(default=None)):
+    if not _is_authenticated(lily_auth):
+        raise HTTPException(401, "Unauthorized")
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _sse_clients.add(queue)
+
+    async def stream():
+        try:
+            yield "retry: 5000\n\n"  # tell browser to reconnect after 5 s if dropped
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=25)
+                    yield f"event: {msg}\ndata: \n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"  # prevent proxy from closing idle connection
+        finally:
+            _sse_clients.discard(queue)
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # ── API endpoints ─────────────────────────────────────────────────────────────
 
 @app.post("/upload")
@@ -328,6 +366,8 @@ async def upload(files: list[UploadFile] = File(...), authorization: str = Heade
         (PHOTOS_DIR / f.filename).write_bytes(await f.read())
         saved.append(f.filename)
     _last_upload = time.time()
+    if saved:
+        _broadcast_reload()
     return {"uploaded": saved, "total_photos": len(_image_list())}
 
 
