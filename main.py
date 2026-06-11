@@ -259,7 +259,8 @@ def admin(lily_admin: str | None = Cookie(default=None)):
     photos_html = "".join(
         f'<tr><td><code style="font-size:.8em">{f.name}</code></td>'
         f'<td>{f.stat().st_size // 1024:,} KB</td>'
-        f'<td>{_fmt_ts(f.stat().st_mtime)}</td></tr>'
+        f'<td>{_fmt_ts(f.stat().st_mtime)}</td>'
+        f'<td><button class="del-btn" data-name="{f.name}">Delete</button></td></tr>'
         for f in images
     )
 
@@ -286,6 +287,13 @@ def admin(lily_admin: str | None = Cookie(default=None)):
     .dot{{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;margin-right:6px}}
     a{{color:#555;font-size:.8em;text-decoration:none}}
     a:hover{{color:#888}}
+    .del-btn{{background:none;border:1px solid #3a1a1a;color:#c44;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:.8em}}
+    .del-btn:hover{{background:#3a1a1a}}
+    .upload-zone{{border:2px dashed #333;border-radius:12px;padding:32px;text-align:center;cursor:pointer;color:#555;transition:border-color .2s}}
+    .upload-zone.drag{{border-color:#666;color:#888}}
+    .upload-btn{{background:#fff;color:#111;border:none;border-radius:8px;padding:10px 24px;font-size:.9em;font-weight:600;cursor:pointer;margin-top:12px}}
+    .upload-btn:hover{{background:#eee}}
+    #upload-status{{font-size:.85em;color:#888;margin-top:10px}}
   </style>
 </head><body>
   <h1>Lily's Photos — Admin</h1>
@@ -315,12 +323,61 @@ def admin(lily_admin: str | None = Cookie(default=None)):
   </div>
 
   <div class="section">
+    <h2>Add Photos</h2>
+    <div class="upload-zone" id="upload-zone">
+      Drop JPG / PNG / WEBP files here, or click to browse
+      <br><button class="upload-btn">Choose Files</button>
+      <input type="file" id="upload-input" multiple accept=".jpg,.jpeg,.png,.webp" style="display:none">
+    </div>
+    <div id="upload-status"></div>
+  </div>
+
+  <div class="section">
     <h2>Photos on Server ({photo_count})</h2>
     <table>
-      <tr><th>Filename</th><th>Size</th><th>Uploaded</th></tr>
+      <tr><th>Filename</th><th>Size</th><th>Uploaded</th><th></th></tr>
       {photos_html}
     </table>
   </div>
+
+  <script>
+    // ── Delete ────────────────────────────────────────────────────────────────
+    document.querySelectorAll('.del-btn').forEach(btn => {{
+      btn.addEventListener('click', async () => {{
+        if (!confirm('Delete ' + btn.dataset.name + '?')) return;
+        btn.disabled = true;
+        const r = await fetch('/photos/' + encodeURIComponent(btn.dataset.name), {{method: 'DELETE'}});
+        if (r.ok) btn.closest('tr').remove();
+        else {{ alert('Delete failed'); btn.disabled = false; }}
+      }});
+    }});
+
+    // ── Upload ────────────────────────────────────────────────────────────────
+    const zone   = document.getElementById('upload-zone');
+    const input  = document.getElementById('upload-input');
+    const status = document.getElementById('upload-status');
+
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('dragover',  e => {{ e.preventDefault(); zone.classList.add('drag'); }});
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+    zone.addEventListener('drop', e => {{ e.preventDefault(); zone.classList.remove('drag'); doUpload(e.dataTransfer.files); }});
+    input.addEventListener('change', () => doUpload(input.files));
+
+    async function doUpload(files) {{
+      if (!files.length) return;
+      status.textContent = 'Uploading ' + files.length + ' file(s)...';
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      const r = await fetch('/admin/upload', {{method: 'POST', body: fd}});
+      if (r.ok) {{
+        const d = await r.json();
+        status.textContent = d.uploaded.length + ' photo(s) added. Reloading page...';
+        setTimeout(() => location.reload(), 1200);
+      }} else {{
+        status.textContent = 'Upload failed (' + r.status + ').';
+      }}
+    }}
+  </script>
 </body></html>""")
 
 
@@ -351,6 +408,44 @@ async def events(lily_auth: str | None = Cookie(default=None)):
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
+
+@app.get("/photos/list")
+def photos_list(authorization: str = Header(...)):
+    if not UPLOAD_TOKEN:
+        raise HTTPException(500, "UPLOAD_TOKEN not configured")
+    if not secrets.compare_digest(authorization, f"Bearer {UPLOAD_TOKEN}"):
+        raise HTTPException(401, "Unauthorized")
+    return {"photos": [f.name for f in _image_list()]}
+
+
+@app.delete("/photos/{filename}")
+def delete_photo(filename: str, lily_admin: str | None = Cookie(default=None)):
+    if not _is_admin(lily_admin):
+        raise HTTPException(401, "Unauthorized")
+    target = PHOTOS_DIR / filename
+    if PHOTOS_DIR.resolve() not in target.resolve().parents:
+        raise HTTPException(400, "Invalid filename")
+    if not target.exists() or target.suffix.lower() not in SUPPORTED:
+        raise HTTPException(404, "Not found")
+    target.unlink()
+    _broadcast_reload()
+    return {"deleted": filename, "total_photos": len(_image_list())}
+
+
+@app.post("/admin/upload")
+async def admin_upload(files: list[UploadFile] = File(...), lily_admin: str | None = Cookie(default=None)):
+    if not _is_admin(lily_admin):
+        raise HTTPException(401, "Unauthorized")
+    saved = []
+    for f in files:
+        if Path(f.filename).suffix.lower() not in SUPPORTED:
+            continue
+        (PHOTOS_DIR / f.filename).write_bytes(await f.read())
+        saved.append(f.filename)
+    if saved:
+        _broadcast_reload()
+    return {"uploaded": saved, "total_photos": len(_image_list())}
+
 
 @app.post("/upload")
 async def upload(files: list[UploadFile] = File(...), authorization: str = Header(...)):
