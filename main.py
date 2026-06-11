@@ -367,7 +367,7 @@ def admin(lily_admin: str | None = Cookie(default=None)):
       btn.addEventListener('click', async () => {{
         if (!confirm('Delete ' + btn.dataset.name + '?')) return;
         btn.disabled = true;
-        const r = await fetch('/photos/' + encodeURIComponent(btn.dataset.name), {{method: 'DELETE'}});
+        const r = await fetch('/admin/photos/' + encodeURIComponent(btn.dataset.name), {{method: 'DELETE'}});
         if (r.ok) btn.closest('tr').remove();
         else {{ alert('Delete failed'); btn.disabled = false; }}
       }});
@@ -439,7 +439,7 @@ def photos_list(authorization: str = Header(...)):
     return {"photos": [f.name for f in _image_list()]}
 
 
-@app.delete("/photos/{filename}")
+@app.delete("/admin/photos/{filename}")
 def delete_photo(filename: str, lily_admin: str | None = Cookie(default=None)):
     if not _is_admin(lily_admin):
         raise HTTPException(401, "Unauthorized")
