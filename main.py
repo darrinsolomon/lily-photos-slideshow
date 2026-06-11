@@ -257,10 +257,13 @@ def admin(lily_admin: str | None = Cookie(default=None)):
     ) or "<tr><td colspan=2 style='color:#555'>No visits yet</td></tr>"
 
     photos_html = "".join(
-        f'<tr><td><code style="font-size:.8em">{f.name}</code></td>'
+        f'<tr>'
+        f'<td><img class="thumb" src="/photos/{f.name}" loading="lazy" data-src="/photos/{f.name}"></td>'
+        f'<td style="color:#777;font-size:.75em;max-width:160px;word-break:break-all">{f.name}</td>'
         f'<td>{f.stat().st_size // 1024:,} KB</td>'
         f'<td>{_fmt_ts(f.stat().st_mtime)}</td>'
-        f'<td><button class="del-btn" data-name="{f.name}">Delete</button></td></tr>'
+        f'<td><button class="del-btn" data-name="{f.name}">Delete</button></td>'
+        f'</tr>'
         for f in images
     )
 
@@ -294,6 +297,10 @@ def admin(lily_admin: str | None = Cookie(default=None)):
     .upload-btn{{background:#fff;color:#111;border:none;border-radius:8px;padding:10px 24px;font-size:.9em;font-weight:600;cursor:pointer;margin-top:12px}}
     .upload-btn:hover{{background:#eee}}
     #upload-status{{font-size:.85em;color:#888;margin-top:10px}}
+    .thumb{{height:64px;width:auto;border-radius:6px;object-fit:cover;cursor:zoom-in;display:block}}
+    #lightbox{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}}
+    #lightbox.open{{display:flex}}
+    #lightbox img{{max-width:92vw;max-height:92vh;border-radius:8px;object-fit:contain;box-shadow:0 8px 48px #000}}
   </style>
 </head><body>
   <h1>Lily's Photos — Admin</h1>
@@ -335,12 +342,26 @@ def admin(lily_admin: str | None = Cookie(default=None)):
   <div class="section">
     <h2>Photos on Server ({photo_count})</h2>
     <table>
-      <tr><th>Filename</th><th>Size</th><th>Uploaded</th><th></th></tr>
+      <tr><th></th><th>Filename</th><th>Size</th><th>Uploaded</th><th></th></tr>
       {photos_html}
     </table>
   </div>
 
+  <div id="lightbox"><img id="lightbox-img" src=""></div>
+
   <script>
+    // ── Lightbox ──────────────────────────────────────────────────────────────
+    const lb    = document.getElementById('lightbox');
+    const lbImg = document.getElementById('lightbox-img');
+    document.querySelectorAll('.thumb').forEach(img => {{
+      img.addEventListener('click', () => {{
+        lbImg.src = img.dataset.src;
+        lb.classList.add('open');
+      }});
+    }});
+    lb.addEventListener('click', () => lb.classList.remove('open'));
+    document.addEventListener('keydown', e => {{ if (e.key === 'Escape') lb.classList.remove('open'); }});
+
     // ── Delete ────────────────────────────────────────────────────────────────
     document.querySelectorAll('.del-btn').forEach(btn => {{
       btn.addEventListener('click', async () => {{
