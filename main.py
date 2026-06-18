@@ -431,7 +431,7 @@ async def events(lily_auth: str | None = Cookie(default=None)):
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
 
-@app.get("/photos/list")
+@app.get("/api/photos")
 def photos_list(authorization: str = Header(...)):
     if not UPLOAD_TOKEN:
         raise HTTPException(500, "UPLOAD_TOKEN not configured")
